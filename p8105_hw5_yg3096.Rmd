@@ -9,6 +9,8 @@ library(tidyverse)
 library(broom)
 library(ggplot2)
 library(dplyr)
+library(janitor)
+library(forcats)
 set.seed(123)
 ```
 
@@ -113,3 +115,55 @@ with greater absolute value will tend to be selected, thus the result is
 generally greater than the true value of μ, when μ and power increases, more  
 samples become significant, the difference converges to 0.
 
+## Problem 3
+```{r}
+# Read data
+homi <- readr::read_csv("data/homicide-data.csv", show_col_types = FALSE) |>
+        clean_names()
+glimpse(homi)
+```
+
+Raw data contains `r nrow(homi)` records and `r ncol(homi)` variables, covering `r n_distinct(homi$city)` cities.
+
+```{r, fig.width = 8, fig.height = 8}
+homi2 <- homi |>
+         mutate(city_state = str_c(city, ", ", state),
+         # Unsolved: closed without arrest or Open/No arrest
+         unsolved = disposition %in% c("Closed without arrest", 
+                                       "Open/No arrest"))
+
+city_summary <- homi2 |>
+                group_by(city_state) |>
+                summarise(n_total = n(), n_unsolved = sum(unsolved), 
+                          .groups = "drop") |>
+                arrange(desc(n_total))
+head(city_summary)
+
+# Filter data od Baltimore
+balti <- homi2 |> filter(city == "Baltimore", state == "MD")
+balti_test <- prop.test(x = sum(balti$unsolved), n = nrow(balti))
+balti_tidy <- tidy(balti_test) |>
+              select(estimate, conf.low, conf.high, p.value)
+balti_tidy
+
+city_prop <- homi2 |>
+             group_by(city_state) |>
+             summarise(n_unsolved = sum(unsolved), n_total = n(), 
+                       .groups = "drop") |>
+             mutate(test = map2(n_unsolved, n_total, 
+                                ~ tidy(prop.test(.x, .y)))) |>
+             unnest(test) |>
+             select(city_state, n_total, n_unsolved, estimate, conf.low, 
+                    conf.high)
+head(city_prop)
+
+# Plot of proportion for unsolved homicides by city
+p_city <- city_prop |>
+          mutate(city_state = fct_reorder(city_state, estimate)) |>
+          ggplot(aes(x = estimate, y = city_state)) +
+          geom_point() +
+          geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.1) +
+          labs(title = "Proportion of unsolved homicides by city (95% CI)",
+               x = "Estimated unsolved proportion", y = NULL) 
+p_city
+```
